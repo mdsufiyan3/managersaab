@@ -1,0 +1,152 @@
+// Firestore Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isValidUser() {
+      return request.resource.data.keys().hasAny([
+        'email', 
+        'displayName', 
+        'createdAt', 
+        'lastLogin',
+        'authProvider',
+        'githubData',
+        'googleData'
+      ]);
+    }
+
+    // Add new helper function for onboarding data validation
+    function isValidOnboardingData() {
+      let data = request.resource.data.onboardingData;
+      return data != null && 
+        (data.personalInfo != null || 
+         data.websiteDetails != null || 
+         data.courierServices != null || 
+         data.paymentDetails != null);
+    }
+
+    // Update Users collection rules to handle selectedCouriers and addresses
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() 
+                   && request.auth.uid == userId;  // Simplified creation rule
+      allow update: if isAuthenticated() 
+                   && isOwner(userId)
+                   && (
+                     // Allow onboarding data, selectedCouriers, and addresses updates
+                     (request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['onboardingData', 'onboardingCompleted', 'updatedAt', 
+                               'lastStepCompleted', 'selectedCouriers', 'addresses', 
+                               'pickupAddresses', 'deliveryAddresses']))
+                     ||
+                     // Allow other user data updates
+                     isValidUser()
+                   );
+      allow delete: if isAuthenticated() 
+                   && isOwner(userId);
+    }
+
+    // Orders collection rules
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() 
+                 && (isOwner(resource.data.userId) 
+                 || resource.data.courier == request.auth.uid);
+      allow create: if isAuthenticated() 
+                   && isOwner(request.resource.data.userId);
+      allow update: if isAuthenticated() 
+                   && (isOwner(resource.data.userId) 
+                   || resource.data.courier == request.auth.uid);
+      allow delete: if isAuthenticated() 
+                   && isOwner(resource.data.userId);
+    }
+
+    // Tracking collection rules
+    match /tracking/{trackingId} {
+      allow read: if isAuthenticated() 
+                 && (isOwner(resource.data.userId) 
+                 || resource.data.courier == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() 
+                   && resource.data.courier == request.auth.uid;
+      allow delete: if false; // Prevent deletion of tracking records
+    }
+
+    // Public profiles collection (limited public info)
+    match /publicProfiles/{userId} {
+      allow read: if true; // Anyone can read public profiles
+      allow create, update: if isAuthenticated() 
+                          && isOwner(userId)
+                          && (
+                            // Validate required public profile fields
+                            request.resource.data.keys().hasAll(['displayName', 'businessType', 'createdAt'])
+                            ||
+                            // Allow partial updates during onboarding
+                            request.resource.data.keys().hasAny(['displayName', 'businessName', 'businessType', 'city', 'country'])
+                          );
+      allow delete: if false; // Prevent deletion of public profiles
+    }
+
+    // Remove or comment out the courierServices rules since we won't use them
+    // match /courierServices/{userId} { ... }
+  }
+}
+
+// Storage Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isImageType() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidFileSize() {
+      return request.resource.size <= 5 * 1024 * 1024; // 5MB max
+    }
+
+    // Profile images
+    match /users/{userId}/profile/{fileName} {
+      allow read: if true; // Public read access
+      allow write: if isAuthenticated() 
+                  && isOwner(userId) 
+                  && isImageType() 
+                  && isValidFileSize();
+    }
+
+    // Order documents
+    match /orders/{orderId}/{fileName} {
+      allow read: if isAuthenticated() 
+                 && (resource.metadata.userId == request.auth.uid 
+                 || resource.metadata.courier == request.auth.uid);
+      allow write: if isAuthenticated() 
+                  && request.resource.metadata.userId == request.auth.uid
+                  && request.resource.size <= 10 * 1024 * 1024; // 10MB max
+    }
+
+    // Package photos (for delivery confirmation)
+    match /deliveries/{orderId}/{fileName} {
+      allow read: if isAuthenticated() 
+                 && (resource.metadata.userId == request.auth.uid 
+                 || resource.metadata.courier == request.auth.uid);
+      allow create: if isAuthenticated() 
+                   && isImageType() 
+                   && isValidFileSize();
+      allow delete: if false; // Prevent deletion of delivery photos
+    }
+  }
+}
