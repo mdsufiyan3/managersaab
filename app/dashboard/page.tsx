@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+
+import { Order } from '../data/orders';
 import Image from 'next/image';
 import {
   RiHomeLine, RiTBoxLine, RiHistoryLine,
@@ -13,7 +15,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, LineChart, Line
 } from 'recharts';
 import { calculateMonthlyRevenue, calculateMonthlyDeliveries } from '../utils/orderCalculations';
-import { orders } from '../order/page'; // Import orders data
+import { orders } from '../data/orders'; // Update the import path
 import { useCurrency, currencies } from '../contexts/CurrencyContext';
 import Sidebar from '../components/Sidebar';
 import CustomCursor from '../components/CustomCursor';
@@ -120,7 +122,7 @@ export default function DashboardPage() {
     setSelectedYear(event.target.value);
   };
 
-  const monthlyRevenue = calculateMonthlyRevenue(orders.filter(order => 
+  const monthlyRevenue = calculateMonthlyRevenue(orders.filter((order: Order) => 
     new Date(order.date).getFullYear() === parseInt(selectedYear) &&
     order.status === 'Delivered'  // Add this condition
   ));
@@ -133,7 +135,7 @@ export default function DashboardPage() {
     prevRevenue: Math.round(item.prevRevenue * getYearMultiplier(selectedYear))
   }));
 
-  const monthlyDeliveries = calculateMonthlyDeliveries(orders.filter(order => 
+  const monthlyDeliveries = calculateMonthlyDeliveries(orders.filter((order: Order) => 
     new Date(order.date).getFullYear() === parseInt(selectedYear)
   ));
 
@@ -142,7 +144,7 @@ export default function DashboardPage() {
   // Update the total revenue display to only include delivered orders
   const totalRevenue = hasDataForYear ? 
     orders
-      .filter(order => 
+      .filter((order: Order) => 
         new Date(order.date).getFullYear() === parseInt(selectedYear) &&
         order.status === 'Delivered'
       )
